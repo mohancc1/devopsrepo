@@ -7,12 +7,12 @@ pipeline {
     }
 
     environment {
-        SONAR_PROJECT_KEY = 'myapp'
-        SONAR_TOKEN       = credentials('jenkins-sonarqube-token')
-        
-        APP_NAME    = "register-app-pipeline"
-        RELEASE     = "1.0.0"
-        IMAGE_TAG   = "${RELEASE}-${BUILD_NUMBER}"
+        APP_NAME = "register-app-pipeline"
+        RELEASE = "1.0.0"
+        DOCKER_USER = "mohancc1"
+        DOCKER_PASS = 'dockerhub'
+        IMAGE_NAME = "${DOCKER_USER}/${APP_NAME}"
+        IMAGE_TAG = "${RELEASE}-${BUILD_NUMBER}"
     }
 
     stages {
@@ -30,25 +30,22 @@ pipeline {
 
         stage("Build Application") {
             steps {
-                sh 'mvn clean package'
+                sh "mvn clean package"
             }
         }
 
         stage("Test Application") {
             steps {
-                sh 'mvn test'
+                sh "mvn test"
             }
         }
 
         stage("SonarQube Analysis") {
             steps {
-                withSonarQubeEnv('sonarqube-server') {
-                    sh '''
-                        mvn sonar:sonar \
-                        -Dsonar.projectKey=$SONAR_PROJECT_KEY \
-                        -Dsonar.host.url=http://23.22.244.79:9000 \
-                        -Dsonar.login=$SONAR_TOKEN
-                    '''
+                script {
+                    withSonarQubeEnv(credentialsId: 'jenkins-sonarqube-token') {
+                        sh "mvn sonar:sonar"
+                    }
                 }
             }
         }
@@ -63,21 +60,11 @@ pipeline {
 
         stage("Build & Push Docker Image") {
             steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'dockerhub',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )
-                ]) {
-                    script {
-                        def imageName = "${DOCKER_USER}/${APP_NAME}"
-
-                        docker.withRegistry('https://index.docker.io/v1/', 'dockerhub') {
-                            def dockerImage = docker.build(imageName)
-                            dockerImage.push("${IMAGE_TAG}")
-                            dockerImage.push("latest")
-                        }
+                script {
+                    docker.withRegistry('', DOCKER_PASS) {
+                        docker_image = docker.build "${IMAGE_NAME}"
+                        docker_image.push("${IMAGE_TAG}")
+                        docker_image.push("latest")
                     }
                 }
             }
@@ -85,38 +72,36 @@ pipeline {
 
         stage("Trivy Scan") {
             steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'dockerhub',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )
-                ]) {
-                    script {
-                        sh """
-                            docker run -v /var/run/docker.sock:/var/run/docker.sock \
-                            aquasec/trivy image ${DOCKER_USER}/${APP_NAME}:latest \
-                            --no-progress --scanners vuln \
-                            --exit-code 0 --severity HIGH,CRITICAL --format table
-                        """
-                    }
+                script {
+                    sh """
+                        docker run -v /var/run/docker.sock:/var/run/docker.sock \
+                        aquasec/trivy image ${IMAGE_NAME}:latest \
+                        --no-progress --scanners vuln --exit-code 0 \
+                        --severity HIGH,CRITICAL --format table
+                    """
                 }
             }
         }
 
         stage("Cleanup Artifacts") {
             steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'dockerhub',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )
-                ]) {
-                    script {
-                        sh "docker rmi ${DOCKER_USER}/${APP_NAME}:${IMAGE_TAG} || true"
-                        sh "docker rmi ${DOCKER_USER}/${APP_NAME}:latest || true"
-                    }
+                script {
+                    sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true"
+                    sh "docker rmi ${IMAGE_NAME}:latest || true"
+                }
+            }
+        }
+
+        stage("Trigger CD Pipeline") {
+            steps {
+                withCredentials([string(credentialsId: 'JENKINS_API_TOKEN', variable: 'JENKINS_TOKEN')]) {
+                    sh """
+                        curl -v -k --user clouduser:${JENKINS_TOKEN} -X POST \
+                        -H 'cache-control: no-cache' \
+                        -H 'content-type: application/x-www-form-urlencoded' \
+                        --data 'IMAGE_TAG=${IMAGE_TAG}' \
+                        'http://ec2-13-232-128-192.ap-south-1.compute.amazonaws.com:8080/job/gitops-register-app-cd/buildWithParameters?token=gitops-token'
+                    """
                 }
             }
         }
