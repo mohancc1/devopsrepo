@@ -41,17 +41,14 @@ pipeline {
         }
 
         stage("SonarQube Analysis") {
-            steps {
-                withSonarQubeEnv('sonarqube-server') {
-                    sh '''
-                        mvn sonar:sonar \
-                        -Dsonar.projectKey=$SONAR_PROJECT_KEY \
-                        -Dsonar.host.url=http://44.210.239.182:9000 \
-                        -Dsonar.login=$SONAR_TOKEN
-                    '''
-                }
+    steps {
+        script {
+            withSonarQubeEnv('sonarqube-server') {
+                sh 'mvn clean verify sonar:sonar'
             }
         }
+    }
+}
 
         stage("Quality Gate") {
             steps {
