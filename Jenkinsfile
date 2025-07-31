@@ -41,22 +41,26 @@ pipeline {
         }
 
         stage("SonarQube Analysis") {
-            steps {
-                script {
-                    withSonarQubeEnv(credentialsId: 'jenkins-sonarqube-token') {
-                        sh "mvn sonar:sonar"
-                    }
-                }
+    steps {
+        script {
+            withSonarQubeEnv('jenkins-sonarqube-token') {
+                sh 'mvn clean verify sonar:sonar'
             }
         }
+    }
+}
 
-        stage("Quality Gate") {
-            steps {
-                script {
-                    waitForQualityGate abortPipeline: false, credentialsId: 'jenkins-sonarqube-token'
-                }
+stage("Quality Gate") {
+    steps {
+        script {
+            timeout(time: 2, unit: 'MINUTES') { // Optional: add timeout to prevent hanging forever
+                def qg = waitForQualityGate(abortPipeline: true)
+                echo "Quality Gate Status: ${qg.status}"
             }
         }
+    }
+}
+
 
         stage("Build & Push Docker Image") {
             steps {
