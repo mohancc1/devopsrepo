@@ -32,7 +32,7 @@
   </div>
 
    <h1> Thank You </h1>
-   <h1> QuantumSoft Technologies Pvt Ltd </h1>
+   <h1> QuantumSoft Technologies Pvt  </h1>
 <br>
    <h1> Happy Learning. See You Again. </h1>
    
